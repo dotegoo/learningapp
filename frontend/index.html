@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adaptive Learning Architect</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mut:#6b6a64;--line:#e2e0d8;--acc:#2f5d50;--acc-ink:#fff;--warn:#b4531f;--ok:#2f7d4f;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171714;--card:#202020;--ink:#ecebe6;--mut:#9b9a92;--line:#33332f;--acc:#7fc2ad;--acc-ink:#10201b;--warn:#e0894f;--ok:#6fcf93;--bad:#f2867f}}
+:root[data-theme="dark"]{--bg:#171714;--card:#202020;--ink:#ecebe6;--mut:#9b9a92;--line:#33332f;--acc:#7fc2ad;--acc-ink:#10201b;--warn:#e0894f;--ok:#6fcf93;--bad:#f2867f}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Georgia,"Times New Roman",serif}
+main{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:26px;margin:8px 0 2px;letter-spacing:-.01em}
+h2{font-size:19px;margin:0 0 8px}
+.sub,.mut{color:var(--mut);font-size:14px}
+.sans,button,input,textarea,label,.tag{font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:14px 0}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 4px}
+input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:15px}
+textarea{min-height:90px;resize:vertical}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1;min-width:120px}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 14px;border-radius:8px;font-size:14px}
+button.p{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
+button.g0{border-color:var(--bad)}button.g1{border-color:var(--warn)}button.g2{border-color:var(--ok)}
+button.sel{background:var(--ink);color:var(--bg)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px}
+.stat{background:var(--bg);border-radius:8px;padding:10px;text-align:center}.stat b{display:block;font-size:22px}
+.tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--mut);margin-left:6px;text-transform:uppercase;letter-spacing:.04em}
+.bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:6px 0}.bar i{display:block;height:100%;background:var(--acc)}
+.tw{overflow-x:auto}table{width:100%;border-collapse:collapse;font:13px system-ui,sans-serif}
+td,th{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.flag{color:var(--warn)}pre{background:var(--bg);padding:10px;border-radius:8px;overflow:auto;font-size:12px;max-height:300px}
+.warn{border-left:4px solid var(--warn)}.q{margin:14px 0}.ans{white-space:pre-wrap;background:var(--bg);padding:8px;border-radius:8px;font-size:14px}
+.steps{display:flex;gap:6px;margin:6px 0 0}.steps span{flex:1;text-align:center;font:12px system-ui,sans-serif;padding:6px;border-bottom:3px solid var(--line);color:var(--mut)}.steps .on{border-color:var(--acc);color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script src="config.js"></script>
+<script>
+const API=(window.API_BASE||'').replace(/\/$/,'');
+let S=null,tab='home',TOKEN=null,mode='login',saveT;
+try{TOKEN=localStorage.getItem('ala-token')}catch(e){}
+async function api(path,o={}){
+  const h={...(o.json?{'Content-Type':'application/json'}:{}),...(TOKEN?{Authorization:'Bearer '+TOKEN}:{})};
+  const r=await fetch(API+path,{method:o.method||'GET',headers:h,body:o.json?JSON.stringify(o.json):o.body});
+  const d=await r.json().catch(()=>({}));
+  if(r.status===401&&TOKEN){logout();throw new Error('Session expired. Please log in again.')}
+  if(!r.ok)throw new Error(d.error||'Request failed');return d;
+}
+const save=()=>{clearTimeout(saveT);saveT=setTimeout(()=>api('/plan',{method:'PUT',json:{state:S}}).catch(()=>{}),600)};
+function authView(){return `<h1>Adaptive Learning</h1><p class="sub">Log in to continue your study plan.</p><div class="card">
+<label>Email</label><input id="em" type="email" autocomplete="username"><label>Password</label>
+<input id="pw" type="password" autocomplete="${mode==='login'?'current-password':'new-password'}">
+${mode==='register'?'<label>Invite code</label><input id="ic">':''}<p></p>
+<button class="p" onclick="doAuth()">${mode==='login'?'Log in':'Create account'}</button>
+<button onclick="mode=mode==='login'?'register':'login';render()">${mode==='login'?'Need an account?':'Have an account?'}</button></div>`}
+async function doAuth(){try{const d=await api('/auth/'+mode,{method:'POST',json:{email:$('em').value,password:$('pw').value,invite:$('ic')&&$('ic').value}});
+  TOKEN=d.token;try{localStorage.setItem('ala-token',TOKEN)}catch(e){}await boot()}catch(e){alert(e.message)}}
+function logout(){TOKEN=null;S=null;try{localStorage.removeItem('ala-token')}catch(e){}render()}
+async function boot(){if(TOKEN){try{S=(await api('/plan')).state}catch(e){}}render()}
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const pd=s=>new Date(s+'T00:00:00');
+const addDays=(s,n)=>{const d=pd(s);d.setDate(d.getDate()+n);return ymd(d)};
+const diff=(a,b)=>Math.round((pd(b)-pd(a))/864e5);
+const today=()=>ymd(new Date());
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const $=id=>document.getElementById(id);
+
+async function init(){
+  const subject=$('subj').value.trim(),td=$('tdate').value,cap=+$('cap').value||60,buf=Math.max(0,+$('buf').value||0);
+  const files=$('pdfs').files,extra=$('mat').value.trim();
+  if(!subject||!td||(!files.length&&!extra)){alert('Add a subject, a target date, and at least one PDF (or pasted notes).');return}
+  if(diff(today(),td)<1){alert('Target date must be in the future.');return}
+  const b=$('go');b.disabled=true;b.textContent='Reading your material… this can take a minute';
+  try{
+    const fd=new FormData();[...files].forEach(f=>fd.append('pdfs',f));fd.append('text',extra);fd.append('subject',subject);
+    const d=await api('/extract',{method:'POST',body:fd});
+    const g=d.concepts.map((c,i)=>({concept_id:'C'+pad(i+1),concept_name:c.concept_name,notes:c.notes,difficulty_rating:c.difficulty_rating,mastery_score:0,last_reviewed:null,next_review_due:null,status:'unseen',full_streak:0,bottleneck:false}));
+    if(g.length<2)throw new Error('Could not find enough concepts in that material.');
+    S={subject,target_date:td,daily_capacity_minutes:cap,buffer_days:buf,start_date:today(),knowledge_graph:g,daily_streak:0,last_session_date:null,session:null,log:[]};
+    save();tab='home';render();
+    if(d.truncated)alert('Your material was very long, so only the first part was used.');
+  }catch(e){alert(e.message);b.disabled=false;b.textContent='Build my schedule'}
+}
+
+const introBy=()=>addDays(S.target_date,-S.buffer_days);
+const cost=(c)=>c.status==='unseen'?6+2*c.difficulty_rating:4;
+const unseen=()=>S.knowledge_graph.filter(c=>c.status==='unseen');
+
+function build(){
+  const t=today(),G=S.knowledge_graph,cap=S.daily_capacity_minutes;
+  const due=G.filter(c=>c.status!=='unseen'&&c.next_review_due&&c.next_review_due<=t)
+    .sort((a,b)=>a.next_review_due.localeCompare(b.next_review_due)||a.mastery_score-b.mastery_score);
+  const left=Math.max(1,diff(t,introBy())+1);
+  const target=Math.ceil(unseen().length/left);
+  let used=0,items=[],deferred=0;
+  due.forEach(c=>{if(used+cost(c)<=cap){items.push(c.concept_id);used+=cost(c)}else deferred++});
+  let n=0;
+  unseen().sort((a,b)=>b.difficulty_rating-a.difficulty_rating).forEach(c=>{
+    if(n<target&&used+cost(c)<=cap){items.push(c.concept_id);used+=cost(c);n++}});
+  const qn=Math.min(8,Math.max(3,items.length));
+  const T=['feynman','why','scenario'],qs=[];
+  const order=items.slice().sort(()=>Math.random()-.5);
+  for(let i=0;i<qn&&order.length;i++){
+    const id=order[i%order.length],c=G.find(x=>x.concept_id===id);
+    const k=c.status==='unseen'?T[i%3]:(i%2?'recall':T[i%3]);
+    qs.push({id,k,a:''});
+  }
+  S.session={date:t,phase:'A',items,qs,grades:{},deferred,minutes:used,reflection:'',done:false};
+  save();
+}
+
+const prompts={
+  feynman:n=>`Feynman: explain “${n}” in plain words to a smart 12-year-old. No jargon.`,
+  why:n=>`Why/how: what causal chain makes “${n}” true or work? Why is it this way and not another?`,
+  scenario:n=>`Scenario + edge case: give a concrete situation where “${n}” applies, then a case where it breaks or is commonly misapplied.`,
+  recall:n=>`Active recall (no peeking): write everything you remember about “${n}”, then name one thing you’re unsure of.`
+};
+
+function setAns(i,v){S.session.qs[i].a=v;save()}
+function go(p){S.session.phase=p;save();render();scrollTo(0,0)}
+const fbHtml=id=>{const f=S.session.fb&&S.session.fb[id];return f?`<div class="ans"><b>Feedback:</b> ${esc(f.feedback)}<br><b>Corrected model:</b> ${esc(f.corrected_model)}</div><p class="mut">Suggested grade pre-selected. Override it if you disagree.</p>`:''};
+async function aiGrade(id){
+  const s=S.session,c=S.knowledge_graph.find(x=>x.concept_id===id),b=$('ai-'+id);b.disabled=true;b.textContent='Grading…';
+  try{const answers=s.qs.filter(q=>q.id===id).map(q=>({kind:q.k,question:prompts[q.k](c.concept_name),answer:q.a}));
+    const d=await api('/grade',{method:'POST',json:{concept_name:c.concept_name,notes:c.notes,answers}});
+    s.fb=s.fb||{};s.fb[id]=d;s.grades[id]=d.grade;save();render()}
+  catch(e){alert(e.message);b.disabled=false;b.textContent='Get AI feedback'}}
+function grade(id,g){S.session.grades[id]=g;save();render()}
+
+function apply(c,g,t){
+  const isNew=c.status==='unseen';
+  let iv;
+  if(g===2){
+    c.full_streak++;c.mastery_score=Math.min(1,c.mastery_score+(isNew?.35:.25));
+    iv=3+Math.round(c.mastery_score*2);
+    c.status=c.mastery_score>=.85&&c.full_streak>=2?'mastered':'review';c.bottleneck=false;
+  }else if(g===1){
+    c.full_streak=0;c.mastery_score=Math.min(1,c.mastery_score+.05);iv=1;c.status=isNew?'learning':'review';
+  }else{
+    c.full_streak=0;c.mastery_score=Math.max(0,c.mastery_score-.2);iv=1;c.status='relearn';c.bottleneck=true;
+  }
+  c.mastery_score=Math.round(c.mastery_score*100)/100;
+  c.last_reviewed=t;
+  c.next_review_due=addDays(t,Math.max(1,Math.min(iv,diff(t,S.target_date)-1)));
+}
+
+function finish(){
+  const s=S.session,t=s.date;
+  s.items.forEach(id=>apply(S.knowledge_graph.find(c=>c.concept_id===id),s.grades[id]??1,t));
+  const y=addDays(t,-1);
+  if(S.last_session_date!==t)S.daily_streak=S.last_session_date===y?S.daily_streak+1:1;
+  S.last_session_date=t;s.done=true;S.log.push({date:t,concepts:s.items.length,reflection:s.reflection});
+  save();tab='home';render();
+}
+
+function exportState(){
+  const {subject,target_date,daily_capacity_minutes,knowledge_graph,daily_streak}=S;
+  return JSON.stringify({subject,target_date,daily_capacity_minutes,days_remaining:Math.max(0,diff(today(),target_date)),
+    knowledge_graph:knowledge_graph.map(({notes,full_streak,...c})=>c),daily_streak},null,2);
+}
+function reset(){if(confirm('Delete this plan and all progress?')){S=null;api('/plan',{method:'PUT',json:{state:null}}).catch(()=>{});render()}}
+function copyState(){const t=exportState();navigator.clipboard?.writeText(t).then(()=>alert('State JSON copied.'),()=>{})}
+
+function setupView(){
+  const d=new Date();d.setDate(d.getDate()+21);
+  return `<h1>New study plan</h1><p class="sub">Upload your PDFs and the app turns them into a spaced-repetition schedule. <a href="#" onclick="logout();return false">Log out</a></p>
+  <div class="card"><label>Subject</label><input id="subj" placeholder="e.g. Organic Chemistry">
+  <label>Study material (PDFs, up to 5 files, 15 MB each)</label><input id="pdfs" type="file" accept="application/pdf" multiple>
+  <label>Extra notes (optional)</label><textarea id="mat" placeholder="Paste anything else you want included"></textarea>
+  <div class="row"><div><label>Target date</label><input id="tdate" type="date" value="${ymd(d)}"></div>
+  <div><label>Daily minutes</label><input id="cap" type="number" min="10" value="60"></div>
+  <div><label>Review buffer (days)</label><input id="buf" type="number" min="0" value="3"></div></div>
+  <p class="mut">The buffer is how many days before the deadline all new material must be introduced, leaving time for review loops.</p>
+  <button id="go" class="p" onclick="init()">Build my schedule</button></div>`;
+}
+
+function homeView(){
+  const G=S.knowledge_graph,t=today(),dl=diff(t,S.target_date),ib=diff(t,introBy());
+  const cnt=k=>G.filter(c=>c.status===k).length;
+  const avg=Math.round(G.reduce((a,c)=>a+c.mastery_score,0)/G.length*100);
+  const per=Math.ceil(unseen().length/Math.max(1,ib+1));
+  const s=S.session,doneToday=s&&s.date===t&&s.done;
+  const dueN=G.filter(c=>c.status!=='unseen'&&c.next_review_due&&c.next_review_due<=t).length;
+  const need=unseen().reduce((a,c)=>a+cost(c),0),avail=Math.max(0,ib+1)*S.daily_capacity_minutes;
+  let h=`<h1>${esc(S.subject)}</h1><p class="sub">Target ${S.target_date} · ${Math.max(0,dl)} days left · ${S.daily_capacity_minutes} min/day · streak ${S.daily_streak}</p>
+  <div class="card"><div class="stats"><div class="stat"><b>${G.length}</b>concepts</div><div class="stat"><b>${cnt('unseen')}</b>unseen</div>
+  <div class="stat"><b>${cnt('learning')+cnt('review')+cnt('relearn')}</b>in progress</div><div class="stat"><b>${cnt('mastered')}</b>mastered</div><div class="stat"><b>${avg}%</b>avg mastery</div></div>
+  <div class="bar"><i style="width:${avg}%"></i></div></div>`;
+  if(dl<1)h+=`<div class="card warn">Your target date has arrived. Do a final review of anything due.</div>`;
+  else if(ib<0&&unseen().length)h+=`<div class="card warn"><b>Behind the intro deadline.</b> ${unseen().length} concepts are still unseen inside your review buffer. Each day now introduces as many as your budget allows.</div>`;
+  else if(need>avail)h+=`<div class="card warn"><b>Capacity warning.</b> The unseen material needs ~${need} min but only ~${avail} min remain before the intro deadline (before reviews). Raise daily minutes, trim material, or move the date.</div>`;
+  h+=`<div class="card"><h2>Roadmap</h2><p>Introduce all new concepts by <b>${introBy()}</b> (~${per}/day), then use the final ${S.buffer_days} days for review loops. Due reviews always come first; today ${dueN} are due.</p>`;
+  if(doneToday)h+=`<p class="mut">Today’s session is complete. Come back tomorrow.</p>`;
+  else h+=`<button class="p" onclick="startToday()">${s&&s.date===t?'Resume':'Start'} today’s session</button>`;
+  h+=`</div><div class="card"><h2>Knowledge graph</h2><div class="tw"><table><tr><th>ID</th><th>Concept</th><th>D</th><th>Mastery</th><th>Status</th><th>Next due</th></tr>`;
+  G.forEach(c=>h+=`<tr><td>${c.concept_id}</td><td>${esc(c.concept_name)}${c.bottleneck?' <span class="flag">⚑</span>':''}</td><td>${c.difficulty_rating}</td><td>${Math.round(c.mastery_score*100)}%</td><td>${c.status}</td><td>${c.next_review_due||'–'}</td></tr>`);
+  h+=`</table></div><p class="mut">⚑ = high-friction bottleneck (failed last review).</p></div>
+  <div class="card"><h2>State</h2><button onclick="$('st').hidden=!$('st').hidden">Show / hide JSON</button> <button onclick="copyState()">Copy</button> <button onclick="reset()">Reset plan</button> <button onclick="logout()">Log out</button>
+  <pre id="st" hidden>${esc(exportState())}</pre></div>`;
+  return h;
+}
+function startToday(){const t=today();if(!S.session||S.session.date!==t)build();tab='session';render()}
+
+function sessionView(){
+  const s=S.session,G=S.knowledge_graph,P={A:0,B:1,C:2}[s.phase];
+  const C=id=>G.find(c=>c.concept_id===id);
+  let h=`<h1>Today’s session</h1><p class="sub">${s.items.length} concepts · ~${s.minutes} of ${S.daily_capacity_minutes} min${s.deferred?` · ${s.deferred} reviews deferred (over budget)`:''}</p>
+  <div class="steps sans">${['A · Learn','B · Drill','C · Grade'].map((x,i)=>`<span class="${i===P?'on':''}">${x}</span>`).join('')}</div>`;
+  if(!s.items.length)return h+`<div class="card">Nothing is due and no new concepts fit today. <button onclick="tab='home';render()">Back</button></div>`;
+  if(s.phase==='A'){
+    s.items.forEach(id=>{const c=C(id),nw=c.status==='unseen';
+      h+=`<div class="card"><h2>${esc(c.concept_name)}<span class="tag">${nw?'new':'review'}</span><span class="tag">D${c.difficulty_rating}</span></h2>
+      <div class="bar"><i style="width:${c.mastery_score*100}%"></i></div>
+      <p>${c.notes?esc(c.notes):'<span class="mut">No detail in your material. Add your own one-line mental model before drilling.</span>'}</p>
+      ${nw?'':'<p class="mut">Try recalling this before reading the notes.</p>'}</div>`});
+    h+=`<button class="p" onclick="go('B')">Start active drill</button>`;
+  }
+  if(s.phase==='B'){
+    h+=`<p class="mut">Answer from memory first. Interleaved across concepts on purpose.</p>`;
+    s.qs.forEach((q,i)=>h+=`<div class="card q"><b>Q${i+1}.</b> ${esc(prompts[q.k](C(q.id).concept_name))}
+      <textarea oninput="setAns(${i},this.value)" placeholder="Your answer…">${esc(q.a)}</textarea></div>`);
+    h+=`<button onclick="go('A')">Back</button> <button class="p" onclick="go('C')">Submit answers</button>`;
+  }
+  if(s.phase==='C'){
+    h+=`<p class="mut">Compare your answers with the reference, then grade yourself candidly. Hesitation counts as partial.</p>`;
+    s.items.forEach(id=>{const c=C(id),g=s.grades[id];
+      const mine=s.qs.filter(q=>q.id===id&&q.a.trim());
+      h+=`<div class="card"><h2>${esc(c.concept_name)}</h2>
+      ${mine.length?mine.map(q=>`<div class="mut">${q.k}</div><div class="ans">${esc(q.a)}</div>`).join(''):'<p class="mut">No answer written. That counts against you.</p>'}
+      <p><b>Reference:</b> ${esc(c.notes||'(your own notes)')}</p>${fbHtml(id)}
+      <button id="ai-${id}" onclick="aiGrade('${id}')">Get AI feedback</button>
+      <button class="g0 ${g===0?'sel':''}" onclick="grade('${id}',0)">Failed</button>
+      <button class="g1 ${g===1?'sel':''}" onclick="grade('${id}',1)">Partial</button>
+      <button class="g2 ${g===2?'sel':''}" onclick="grade('${id}',2)">Full grasp</button></div>`});
+    const all=s.items.every(id=>s.grades[id]!=null);
+    h+=`<div class="card"><h2>1-minute recap</h2><label>In one or two sentences: what is the main thing you learned today, and what is still fuzzy?</label>
+    <textarea oninput="S.session.reflection=this.value;save()">${esc(s.reflection)}</textarea></div>
+    <button onclick="go('B')">Back</button> <button class="p" ${all?'':'disabled'} onclick="finish()">Finish &amp; update schedule</button>${all?'':' <span class="mut">Grade every concept first.</span>'}`;
+  }
+  return h;
+}
+
+function render(){
+  $('app').innerHTML=!TOKEN?authView():!S?setupView():tab==='session'&&S.session&&!S.session.done?sessionView():homeView();
+}
+boot();
+</script>
+</body>
+</html>
